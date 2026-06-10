@@ -1,5 +1,11 @@
-﻿backend/.env
+﻿.env
+backend/.env
 __pycache__/
-node_modules/
 *.pyc
+*.pyo
+.venv/
 venv/
+node_modules/
+*.egg-info/
+dist/
+.pytest_cache/
