@@ -58,6 +58,13 @@ class Settings:
     #  mundo llame a nuestra API. Aquí solo autorizamos el dominio del frontend.
     FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 
+    # ── Modo desarrollo ───────────────────────────────────────────────────────
+    #  DEBUG=true en el .env LOCAL activa la documentación Swagger (/docs).
+    #  En producción se deja sin definir o en "false" para no exponer la API.
+    #  Convierte el texto del .env a booleano: solo "true" (sin importar
+    #  mayúsculas/minúsculas) cuenta como verdadero.
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
     # ── Parámetros OBLIGATORIOS de la pareja P-07 (Anexo B) ───────────────────
     #  Lista blanca de extensiones permitidas (control SEC-03).
     #  frozenset = conjunto inmutable: nadie puede añadir extensiones en caliente

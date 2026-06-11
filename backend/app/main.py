@@ -40,11 +40,15 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 #  Instancia de la aplicación
 # -----------------------------------------------------------------------------
-#  docs_url=None y redoc_url=None DESACTIVAN la documentación automática
-#  (/docs Swagger y /redoc). En producción eso es superficie de ataque: un
-#  atacante podría explorar todos los endpoints sin autenticarse. Apagarla
-#  reduce la información expuesta.
-app = FastAPI(docs_url=None, redoc_url=None)
+#  La documentación automática (/docs Swagger y /redoc) se habilita SOLO en
+#  modo desarrollo (DEBUG=true en el .env local), para poder probar los
+#  endpoints de forma visual. En producción (DEBUG ausente o false) queda
+#  apagada: es superficie de ataque que dejaría explorar la API sin
+#  autenticarse. (control SEC)
+app = FastAPI(
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+)
 
 
 # -----------------------------------------------------------------------------

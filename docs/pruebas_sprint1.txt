@@ -11,241 +11,240 @@
 
  Para que sirve este archivo:
    Probar a mano que el backend VALIDA bien las subidas y poder explicar
-   cada prueba en la defensa oral (lectura de codigo y demo con la docente).
+   cada prueba en la defensa oral.
+
+ IMPORTANTE (Windows PowerShell 5.1):
+   NO uses "curl" con comillas simples para enviar JSON: PowerShell 5.1
+   elimina las comillas dobles y el servidor recibe un JSON roto (error 422).
+   Usa el METODO A (Swagger, visual) o el METODO B (Invoke-RestMethod).
+   La explicacion completa de este problema esta al final del archivo.
 ==========================================================================
 
 
 --------------------------------------------------------------------------
- 0) PREPARACION: NECESITAS DOS TERMINALES
+ 0) ARRANCAR EL SERVIDOR
 --------------------------------------------------------------------------
- El servidor OCUPA una terminal mientras corre. Por eso necesitas una
- segunda ventana de PowerShell para lanzar las pruebas.
-
- TERMINAL 1  ->  arrancar el servidor:
+ En una ventana de PowerShell:
 
      cd C:\Users\kasea\archivacloud-p07\backend
      .\venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 
- Espera a ver el mensaje:  "Application startup complete."
- Deja esta ventana abierta: ahi se ven los logs de cada peticion que llega.
+ Espera el mensaje "Application startup complete." y deja la ventana abierta.
+ Ahi se ven los logs de cada peticion que llega.
 
- TERMINAL 2  ->  abre OTRA ventana de PowerShell para los comandos de abajo.
 
- NOTA IMPORTANTE SOBRE "curl":
-   Usa siempre  curl.exe  (con .exe), NUNCA  curl  a secas.
-   En PowerShell, "curl" es un alias de otro comando (Invoke-WebRequest)
-   que se comporta distinto y te dara resultados confusos.
+==========================================================================
+ METODO A (RECOMENDADO): SWAGGER UI EN EL NAVEGADOR
+==========================================================================
+ Es la forma mas facil y visual. Requiere DEBUG=true en el .env (ya lo esta
+ en tu maquina local). Swagger queda APAGADO en produccion por seguridad.
 
- NOTA SOBRE LAS COMILLAS (truco de Windows):
-   El JSON va envuelto en COMILLAS SIMPLES por fuera ' ... '.
-   Asi PowerShell pasa intactas las comillas dobles " del JSON a curl.
+ PASOS:
+   1) Abre en el navegador:  http://127.0.0.1:8000/docs
+   2) Haz clic en  POST /api/upload/presigned-url
+   3) Boton "Try it out"
+   4) Edita el JSON (fileName, fileType, fileSize)
+   5) Boton "Execute"
+   6) Mira abajo el codigo HTTP (200 / 400 / 422) y la respuesta.
 
+ Prueba los mismos casos de la tabla de mas abajo, cambiando el JSON.
+
+
+==========================================================================
+ METODO B: Invoke-RestMethod EN POWERSHELL
+==========================================================================
+ Si prefieres la terminal, PEGA UNA VEZ esta funcion auxiliar. Hace la
+ peticion y muestra el codigo HTTP y el mensaje (en color):
+
+     function Probar($json) {
+       try {
+         $r = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/upload/presigned-url" -Method Post -ContentType "application/json" -Body $json
+         Write-Host "200 OK  ->  key: $($r.key)" -ForegroundColor Green
+       } catch {
+         $code = [int]$_.Exception.Response.StatusCode
+         Write-Host "$code  ->  $($_.ErrorDetails.Message)" -ForegroundColor Yellow
+       }
+     }
+
+ Y ahora lanza cada caso con una sola linea:
+
+     Probar '{"fileName":"respaldo.zip","fileType":"application/zip","fileSize":5242880}'
+     Probar '{"fileName":"backup.tar.gz","fileType":"application/gzip","fileSize":10485760}'
+     Probar '{"fileName":"virus.exe","fileType":"application/octet-stream","fileSize":1024}'
+     Probar '{"fileName":"enorme.zip","fileType":"application/zip","fileSize":62914560}'
+     Probar '{"fileName":"../../../etc/passwd.zip","fileType":"application/zip","fileSize":2048}'
+     Probar '{"fileName":"archivo.gz","fileType":"application/gzip","fileSize":2048}'
+     Probar '{"fileName":"respaldo.zip"}'
+
+ (Aqui las comillas simples SI funcionan, porque Invoke-RestMethod es un
+  comando propio de PowerShell: el JSON nunca sale a un programa externo.)
+
+
+==========================================================================
+ LOS CASOS DE PRUEBA Y POR QUE SON ESOS
+==========================================================================
 
 --------------------------------------------------------------------------
- 1) GET /healthz  ->  comprobar que el servidor esta vivo
+ GET /healthz  ->  comprobar que el servidor esta vivo
 --------------------------------------------------------------------------
- COMANDO:
+ En el navegador:  http://127.0.0.1:8000/healthz
+ SE ESPERA:        {"status":"ok"}
 
-     curl.exe http://127.0.0.1:8000/healthz
-
- SE ESPERA:
-
-     {"status":"ok"}
-
- POR QUE ESTE COMANDO:
+ POR QUE:
    Es el endpoint de "health-check" (comprobacion de vida). Confirma que el
-   servidor arranco y responde, ANTES de probar nada mas. En produccion lo
-   usan los balanceadores de carga para saber si la app esta sana. No toca
-   logica de negocio ni AWS, por eso es la primera prueba.
-
-   (Tambien puedes abrirlo en el navegador: http://127.0.0.1:8000/healthz)
+   servidor arranco y responde antes de probar nada mas. No toca logica de
+   negocio ni AWS, por eso es la primera prueba.
 
 
 --------------------------------------------------------------------------
- 2) [VALIDO] .zip de 5 MB  ->  debe dar 200 OK
+ CASO 1 - [VALIDO] .zip de 5 MB  ->  debe dar 200
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"respaldo.zip","fileType":"application/zip","fileSize":5242880}
+ SE ESPERA: 200 OK + presignedUrl, key (uploads/<uuid>_respaldo.zip), publicUrl
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"respaldo.zip","fileType":"application/zip","fileSize":5242880}'
-
- SE ESPERA:
-
-     HTTP/1.1 200 OK
-     {"presignedUrl":"https://...","key":"uploads/<uuid>_respaldo.zip","publicUrl":"https://..."}
-
- POR QUE ESTE COMANDO:
-   Es el "camino feliz". Un .zip de 5 MB (5242880 bytes = 5 x 1024 x 1024).
-   La extension .zip esta en la lista blanca y 5 MB < 50 MB, asi que el
-   backend acepta y genera la presigned URL. Demuestra que el flujo normal
-   funciona de principio a fin.
-   Controles que valida: SEC-03 (extension permitida) + SEC-04 (tamano).
+ POR QUE:
+   Es el "camino feliz". Un .zip de 5 MB (5242880 = 5 x 1024 x 1024). La
+   extension esta permitida y 5 MB < 50 MB, asi que el backend genera la URL
+   firmada. Demuestra que el flujo normal funciona.
+   Controles: SEC-03 (extension permitida) + SEC-04 (tamano).
 
 
 --------------------------------------------------------------------------
- 3) [VALIDO] .tar.gz (doble extension) de 10 MB  ->  debe dar 200 OK
+ CASO 2 - [VALIDO] .tar.gz (doble extension) de 10 MB  ->  debe dar 200
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"backup.tar.gz","fileType":"application/gzip","fileSize":10485760}
+ SE ESPERA: 200 OK + key uploads/<uuid>_backup.tar.gz
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"backup.tar.gz","fileType":"application/gzip","fileSize":10485760}'
-
- SE ESPERA:
-
-     HTTP/1.1 200 OK
-     {"presignedUrl":"...","key":"uploads/<uuid>_backup.tar.gz","publicUrl":"..."}
-
- POR QUE ESTE COMANDO:
-   Es la prueba CLAVE del proyecto. ".tar.gz" es una extension DOBLE.
-   Si el codigo usara os.path.splitext() de forma ingenua, veria solo ".gz"
-   y rechazaria un .tar.gz legitimo. Nuestra funcion get_extension() detecta
-   primero el ".tar.gz" completo, por eso pasa. Si este da 200, la logica de
-   doble extension funciona.
-   Control que valida: SEC-03 (manejo correcto de la lista blanca).
+ POR QUE:
+   Es la prueba CLAVE del proyecto. ".tar.gz" es una extension DOBLE. Si el
+   codigo usara os.path.splitext() de forma ingenua veria solo ".gz" y la
+   rechazaria. Nuestra funcion get_extension() detecta primero el ".tar.gz"
+   completo, por eso pasa. Si da 200, la logica de doble extension funciona.
+   Control: SEC-03.
 
 
 --------------------------------------------------------------------------
- 4) [RECHAZA] .exe (extension prohibida)  ->  debe dar 400
+ CASO 3 - [RECHAZA] .exe (prohibido)  ->  debe dar 400
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"virus.exe","fileType":"application/octet-stream","fileSize":1024}
+ SE ESPERA: 400 + {"detail":"Solo se permiten archivos .zip y .tar.gz."}
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"virus.exe","fileType":"application/octet-stream","fileSize":1024}'
-
- SE ESPERA:
-
-     HTTP/1.1 400 Bad Request
-     {"detail":"Solo se permiten archivos .zip y .tar.gz."}
-
- POR QUE ESTE COMANDO:
-   Simula el ataque mas tipico: subir un ejecutable peligroso. La lista
-   blanca solo permite .zip y .tar.gz, asi que .exe se rechaza con 400 y
-   NUNCA se genera una URL de subida. Es uno de los inputs que la docente
-   probara en la demo ("archivo de tipo no permitido").
-   Control que valida: SEC-03 (lista blanca de extensiones).
+ POR QUE:
+   Simula el ataque mas tipico: subir un ejecutable. La lista blanca solo
+   permite .zip y .tar.gz, asi que .exe se rechaza con 400 y NUNCA se genera
+   una URL. Es uno de los inputs que la docente probara en la demo.
+   Control: SEC-03 (lista blanca de extensiones).
 
 
 --------------------------------------------------------------------------
- 5) [RECHAZA] .zip de 60 MB (supera el limite)  ->  debe dar 400
+ CASO 4 - [RECHAZA] .zip de 60 MB (supera el limite)  ->  debe dar 400
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"enorme.zip","fileType":"application/zip","fileSize":62914560}
+ SE ESPERA: 400 + {"detail":"El archivo supera el limite de 50 MB."}
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"enorme.zip","fileType":"application/zip","fileSize":62914560}'
-
- SE ESPERA:
-
-     HTTP/1.1 400 Bad Request
-     {"detail":"El archivo supera el limite de 50 MB."}
-
- POR QUE ESTE COMANDO:
-   62914560 bytes = 60 MB (60 x 1024 x 1024). Supera el maximo de 50 MB del
-   Anexo B, asi que el backend lo corta ANTES de llamar a AWS (no malgasta
-   recursos en algo que va a rechazar). Es otro input tipico de la demo
-   ("archivo de tamano excedido").
-   Control que valida: SEC-04 (limite de tamano en el servidor).
+ POR QUE:
+   62914560 = 60 MB (60 x 1024 x 1024). Supera el maximo de 50 MB, asi que el
+   backend lo corta ANTES de llamar a AWS (no malgasta recursos). Otro input
+   tipico de la demo ("archivo de tamano excedido").
+   Control: SEC-04 (limite de tamano en el servidor).
 
 
 --------------------------------------------------------------------------
- 6) [SEGURIDAD] nombre con path traversal  ->  200, pero el nombre se limpia
+ CASO 5 - [SEGURIDAD] path traversal  ->  200, pero el nombre se limpia
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"../../../etc/passwd.zip","fileType":"application/zip","fileSize":2048}
+ SE ESPERA: 200 + key uploads/<uuid>_passwd.zip   (FIJATE: sin ningun "../")
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"../../../etc/passwd.zip","fileType":"application/zip","fileSize":2048}'
-
- SE ESPERA:
-
-     HTTP/1.1 200 OK
-     ...  "key":"uploads/<uuid>_passwd.zip"  ...
-
- POR QUE ESTE COMANDO:
-   Es un intento de "path traversal": usar ../ para escapar de la carpeta
-   uploads/ y escribir en otra ruta del bucket. Nuestra funcion
-   sanitize_filename() se queda solo con el nombre base, por eso
-   "../../../etc/passwd.zip" se convierte en "passwd.zip". FIJATE en la
-   "key" de la respuesta: NO debe contener ningun "../". Es el tercer input
-   tipico de la docente ("nombre con caracteres peligrosos").
-   Control que valida: SEC-03 (sanitizacion del fileName).
+ POR QUE:
+   Es un intento de "path traversal": usar ../ para escapar de uploads/ y
+   escribir en otra ruta del bucket. La funcion sanitize_filename() se queda
+   solo con el nombre base, asi que queda "passwd.zip". Revisa la "key" de la
+   respuesta: NO debe contener "../". Tercer input tipico de la docente.
+   Control: SEC-03 (sanitizacion del fileName).
 
 
 --------------------------------------------------------------------------
- 7) [RECHAZA] .gz suelto (NO es .tar.gz)  ->  debe dar 400
+ CASO 6 - [RECHAZA] .gz suelto (NO es .tar.gz)  ->  debe dar 400
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"archivo.gz","fileType":"application/gzip","fileSize":2048}
+ SE ESPERA: 400 + {"detail":"Solo se permiten archivos .zip y .tar.gz."}
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"archivo.gz","fileType":"application/gzip","fileSize":2048}'
-
- SE ESPERA:
-
-     HTTP/1.1 400 Bad Request
-     {"detail":"Solo se permiten archivos .zip y .tar.gz."}
-
- POR QUE ESTE COMANDO:
+ POR QUE:
    Es el "caso espejo" del .tar.gz. Un ".gz" a secas NO esta permitido (solo
-   ".tar.gz"). Demuestra que la validacion no es demasiado laxa: distingue
-   entre ".gz" (rechazado) y ".tar.gz" (aceptado). Sirve para defender que la
-   lista blanca es precisa, no aproximada.
-   Control que valida: SEC-03.
+   ".tar.gz"). Demuestra que la validacion no es laxa: distingue ".gz"
+   (rechazado) de ".tar.gz" (aceptado).
+   Control: SEC-03.
 
 
 --------------------------------------------------------------------------
- 8) [RECHAZA] JSON incompleto (falta un campo)  ->  debe dar 422
+ CASO 7 - [RECHAZA] JSON incompleto (falta un campo)  ->  debe dar 422
 --------------------------------------------------------------------------
- COMANDO:
+ JSON: {"fileName":"respaldo.zip"}
+ SE ESPERA: 422 + {"detail":"Datos de solicitud invalidos."}
 
-     curl.exe -i -X POST http://127.0.0.1:8000/api/upload/presigned-url -H "Content-Type: application/json" -d '{"fileName":"respaldo.zip"}'
-
- SE ESPERA:
-
-     HTTP/1.1 422 Unprocessable Entity
-     {"detail":"Datos de solicitud invalidos."}
-
- POR QUE ESTE COMANDO:
-   Falta fileType y fileSize. Pydantic valida la forma del JSON ANTES de que
-   se ejecute nuestra logica y lo rechaza con 422. Importante: el mensaje es
-   GENERICO, no muestra detalles internos ni trazas tecnicas.
-   Controles que valida: SEC-03 (validacion con Pydantic) + SEC-07 (errores
-   sin informacion sensible).
+ POR QUE:
+   Faltan fileType y fileSize. Pydantic valida la forma del JSON ANTES de que
+   se ejecute nuestra logica y lo rechaza con 422. El mensaje es GENERICO, no
+   muestra detalles internos ni trazas tecnicas.
+   Controles: SEC-03 (validacion Pydantic) + SEC-07 (errores sin info sensible).
 
 
---------------------------------------------------------------------------
+==========================================================================
  COMO LEER LAS RESPUESTAS
---------------------------------------------------------------------------
- El flag  -i  hace que curl muestre la primera linea con el codigo HTTP y
- luego el cuerpo. Lo que significa cada codigo:
-
+==========================================================================
    200  ->  Aceptado. Devuelve presignedUrl, key y publicUrl.
-   400  ->  Rechazado por TU validacion (extension o tamano). Es lo correcto
-            en los casos 4, 5 y 7.
+   400  ->  Rechazado por TU validacion (extension o tamano). Correcto en
+            los casos 3, 4 y 6.
    422  ->  El JSON esta mal formado o falta un campo (lo rechaza Pydantic).
+            Correcto en el caso 7.
    502  ->  Error hablando con AWS (credenciales caducadas, red, permisos).
-            Si te sale esto, reinicia el Learner Lab y actualiza el .env.
+            Si te sale, reinicia el Learner Lab y actualiza el .env.
 
- En la TERMINAL 1 veras, en paralelo, el log de cada peticion que llega.
- Eso demuestra que el servidor las esta procesando de verdad.
+ En la ventana del servidor veras, en paralelo, el log de cada peticion.
 
 
---------------------------------------------------------------------------
+==========================================================================
  MAPA: QUE LINEA DEL CODIGO HACE CADA VALIDACION
---------------------------------------------------------------------------
+==========================================================================
  (archivo: backend/app/main.py)
 
-   Rechazo por tamano (caso 5)        ->  if payload.fileSize > settings.MAX_FILE_SIZE_BYTES
-   Rechazo por extension (casos 4,7)  ->  if ext not in settings.ALLOWED_EXTENSIONS
+   Rechazo por tamano (caso 4)        ->  if payload.fileSize > settings.MAX_FILE_SIZE_BYTES
+   Rechazo por extension (casos 3,6)  ->  if ext not in settings.ALLOWED_EXTENSIONS
    Deteccion correcta de .tar.gz      ->  funcion get_extension()
-   Limpieza de path traversal (caso6) ->  funcion sanitize_filename()
-   Validacion de campos (caso 8)      ->  clase PresignedUrlRequest (Pydantic)
+   Limpieza de path traversal (caso5) ->  funcion sanitize_filename()
+   Validacion de campos (caso 7)      ->  clase PresignedUrlRequest (Pydantic)
    Errores sin trazas tecnicas        ->  @app.exception_handler(...)
 
 
---------------------------------------------------------------------------
+==========================================================================
+ POR QUE NO FUNCIONA "curl" CON COMILLAS SIMPLES (para la bitacora)
+==========================================================================
+ Sintoma: con
+     curl.exe -d '{"fileName":"respaldo.zip",...}'
+ TODOS los casos devuelven 422 "Datos de solicitud invalidos", incluso los
+ que deberian dar 200.
+
+ Causa: Windows PowerShell 5.1 tiene un defecto conocido al pasar argumentos
+ a programas EXTERNOS (como curl.exe): elimina las comillas dobles. Entonces
+ curl envia  {fileName:respaldo.zip,...}  SIN comillas, que no es JSON valido,
+ y el servidor responde 422. NO es un fallo del backend: el codigo esta bien.
+
+ Solucion: usar Swagger (Metodo A) o Invoke-RestMethod (Metodo B), que no
+ tienen ese problema. Si aun asi quisieras usar curl, habria que escapar cada
+ comilla como \"  (engorroso y propenso a errores):
+     curl.exe -d "{\"fileName\":\"respaldo.zip\",\"fileType\":\"application/zip\",\"fileSize\":5242880}"
+
+
+==========================================================================
  EXTRA: PROBAR LA SUBIDA REAL A S3 (mas avanzado)
---------------------------------------------------------------------------
- Los comandos de arriba prueban la VALIDACION del backend. Para probar que
- un archivo REAL sube a S3 con la presigned URL hay que dar dos pasos:
-   1) Pedir la presigned URL al endpoint (caso 2).
-   2) Hacer un PUT a esa URL con el archivo.
+==========================================================================
+ Los metodos de arriba prueban la VALIDACION. Para probar que un archivo REAL
+ sube a S3 con la presigned URL:
+   1) Pide la presigned URL (caso 1) y copia el valor de "presignedUrl".
+   2) Haz un PUT a esa URL con el archivo. OJO: el Content-Type debe ser el
+      mismo que se firmo (application/zip). La URL dura 5 minutos.
 
- OJO: el PUT debe enviar el mismo Content-Type que se firmo. Ejemplo en
- PowerShell (la URL se copia de la respuesta del paso 1, dura 5 minutos):
-
-     curl.exe -i -X PUT "<PEGAR_AQUI_LA_presignedUrl>" -H "Content-Type: application/zip" --data-binary "@C:\ruta\a\tu\archivo.zip"
+     curl.exe -i -X PUT "<PEGAR_presignedUrl>" -H "Content-Type: application/zip" --data-binary "@C:\ruta\a\tu\archivo.zip"
 
  Si responde 200, el archivo quedo en el bucket bajo uploads/.
  Si responde 403 SignatureDoesNotMatch, casi siempre es porque el
@@ -255,8 +254,11 @@
 ==========================================================================
  RECORDATORIO DE SEGURIDAD
 ==========================================================================
- - El archivo .env con credenciales NUNCA se sube al repo (esta en
-   .gitignore). Solo se versiona .env.example con placeholders.  (SEC-01)
+ - El .env con credenciales NUNCA se sube al repo (esta en .gitignore). Solo
+   se versiona .env.example con placeholders.  (SEC-01)
+ - DEBUG=true (Swagger /docs visible) es SOLO para tu maquina local. En
+   produccion va DEBUG=false para no exponer la estructura de la API. Por eso
+   el .env.example trae DEBUG=false (el valor seguro por defecto).
  - Las credenciales de AWS Academy son temporales: si las pruebas dan 502,
    reinicia el Lab (End Lab -> Start Lab) y pega las nuevas en el .env.
 ==========================================================================
