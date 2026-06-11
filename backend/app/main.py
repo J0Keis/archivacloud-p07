@@ -1,44 +1,84 @@
-import os
-import re
-import uuid
-import logging
+# =============================================================================
+#  main.py  —  API FastAPI del backend ArchivaCloud P-07
+# -----------------------------------------------------------------------------
+#  Expone dos endpoints:
+#    GET  /healthz                     -> comprobación de vida del servicio
+#    POST /api/upload/presigned-url    -> genera una URL firmada para subir a S3
+#
+#  Patrón "presigned URL": el navegador NO sube el archivo a través de nuestro
+#  backend. El backend solo FIRMA un permiso temporal y el navegador sube el
+#  archivo DIRECTO a S3. Así el servidor no gasta ancho de banda ni memoria en
+#  archivos grandes, y nunca toca el contenido del archivo.
+# =============================================================================
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, field_validator
+import os         # utilidades de rutas (os.path.splitext) para detectar extensiones
+import re         # expresiones regulares para sanear el nombre de archivo
+import uuid       # genera identificadores únicos para las claves S3
+import logging    # registra errores en el servidor SIN mostrarlos al cliente
 
-from app.config import settings
+import boto3                                              # SDK oficial de AWS
+from botocore.exceptions import BotoCoreError, ClientError  # errores que lanza boto3/S3
+from fastapi import FastAPI, HTTPException, Request       # núcleo de la API
+from fastapi.middleware.cors import CORSMiddleware        # middleware para CORS (SEC-02)
+from fastapi.responses import JSONResponse                # respuestas JSON manuales
+from fastapi.exceptions import RequestValidationError     # error de validación de Pydantic
+from pydantic import BaseModel, field_validator           # modelo y validadores de entrada
 
+from app.config import settings   # nuestra configuración central (config.py)
+
+
+# -----------------------------------------------------------------------------
+#  Logger
+# -----------------------------------------------------------------------------
+#  Configura el sistema de logs. Los errores se escriben en la CONSOLA DEL
+#  SERVIDOR (donde solo nosotros los vemos), nunca se envían al usuario final
+#  (control SEC-07: errores sin información sensible).
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Swagger y ReDoc deshabilitados: no exponer la superficie de la API en producción
+
+# -----------------------------------------------------------------------------
+#  Instancia de la aplicación
+# -----------------------------------------------------------------------------
+#  docs_url=None y redoc_url=None DESACTIVAN la documentación automática
+#  (/docs Swagger y /redoc). En producción eso es superficie de ataque: un
+#  atacante podría explorar todos los endpoints sin autenticarse. Apagarla
+#  reduce la información expuesta.
 app = FastAPI(docs_url=None, redoc_url=None)
 
-# ── CORS restrictivo ──────────────────────────────────────────────────────────
-# allow_origins recibe una lista con el origen exacto leído del .env.
-# allow_credentials=False evita que cookies o cabeceras de autorización del
-# navegador se envíen junto a las peticiones cross-origin.
+
+# -----------------------------------------------------------------------------
+#  CORS restrictivo  (control SEC-02)
+# -----------------------------------------------------------------------------
+#  CORS = Cross-Origin Resource Sharing. Decide QUÉ webs (orígenes) pueden
+#  llamar a nuestra API desde el navegador.
 app.add_middleware(
     CORSMiddleware,
+    #  Lista con UN solo origen, leído del .env. Nunca "*".
     allow_origins=[settings.FRONTEND_ORIGIN],
+    #  False = el navegador no enviará cookies ni cabeceras de autorización en
+    #  las peticiones cross-origin. Mitiga ataques de tipo CSRF.
     allow_credentials=False,
+    #  Solo permitimos los métodos que realmente usamos (mínimo privilegio).
     allow_methods=["GET", "POST"],
+    #  Solo permitimos la cabecera necesaria para enviar JSON.
     allow_headers=["Content-Type"],
 )
 
 
-# ── Manejadores de error globales ─────────────────────────────────────────────
-# Capturan excepciones antes de que FastAPI las serialice con el stack trace
-# completo. Devuelven solo un mensaje genérico al cliente; el detalle queda
-# en el log del servidor (donde el usuario final no puede verlo).
+# -----------------------------------------------------------------------------
+#  Manejadores de error globales  (control SEC-07)
+# -----------------------------------------------------------------------------
+#  Sin estos, FastAPI podría devolver al cliente el "stack trace" (traza
+#  técnica) completo, revelando rutas internas, versiones de librerías y
+#  lógica del servidor. Aquí interceptamos los errores y devolvemos un mensaje
+#  genérico, mientras el detalle real queda en el log del servidor.
 
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):
+    #  Se dispara cuando la entrada no cumple el modelo Pydantic (faltan
+    #  campos, tipos incorrectos, validadores fallidos...). Devolvemos 422
+    #  con un mensaje neutro, sin revelar qué campo exacto falló internamente.
     return JSONResponse(
         status_code=422,
         content={"detail": "Datos de solicitud inválidos."},
@@ -47,22 +87,32 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(Exception)
 async def generic_handler(request: Request, exc: Exception):
+    #  Red de seguridad para CUALQUIER error no previsto.
+    #  exc_info=True guarda la traza completa EN EL LOG del servidor...
     logger.error("Unhandled exception: %s", exc, exc_info=True)
+    #  ...pero al cliente solo le llega un 500 genérico.
     return JSONResponse(
         status_code=500,
         content={"detail": "Error interno del servidor."},
     )
 
 
-# ── Modelo de entrada ─────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  Modelo de entrada  (control SEC-03: validación con Pydantic)
+# -----------------------------------------------------------------------------
+#  Define la forma EXACTA del JSON que aceptamos en POST /presigned-url.
+#  Si el cliente manda algo que no encaja (falta un campo, tipo equivocado),
+#  Pydantic lo rechaza ANTES de que el código del endpoint se ejecute.
 class PresignedUrlRequest(BaseModel):
-    fileName: str
-    fileType: str
-    fileSize: int
+    fileName: str   # nombre del archivo, p.ej. "respaldo.tar.gz"
+    fileType: str   # tipo MIME, p.ej. "application/zip"
+    fileSize: int   # tamaño en bytes que declara el cliente
 
+    #  field_validator = regla extra que corre sobre un campo concreto.
     @field_validator("fileName")
     @classmethod
     def file_name_not_empty(cls, v: str) -> str:
+        #  v.strip() quita espacios; si queda vacío, el nombre era inválido.
         if not v or not v.strip():
             raise ValueError("fileName no puede estar vacío.")
         return v
@@ -70,126 +120,164 @@ class PresignedUrlRequest(BaseModel):
     @field_validator("fileSize")
     @classmethod
     def file_size_positive(cls, v: int) -> int:
+        #  Un tamaño de 0 o negativo no tiene sentido: lo rechazamos.
         if v <= 0:
             raise ValueError("fileSize debe ser mayor que cero.")
         return v
 
 
-# ── Utilidades de seguridad ───────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  Utilidades de seguridad
+# -----------------------------------------------------------------------------
 
-# Regex explícito en ASCII: solo letras a-z/A-Z, dígitos, punto, guión, guión
-# bajo. Se evita \w para no permitir caracteres Unicode que podrían causar
-# problemas en nombres de claves S3 o en sistemas de archivos.
+#  Expresión regular que define qué caracteres NO son seguros en un nombre.
+#  El "^" dentro de [...] significa "cualquier cosa que NO sea":
+#  letras a-z/A-Z, dígitos 0-9, punto, guion y guion bajo.
+#  Usamos ASCII explícito (y no \w) para no permitir letras Unicode (tildes,
+#  kanji, emojis...) que podrían dar problemas en las claves de S3.
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9.\-_]")
 
 
 def get_extension(filename: str) -> str:
     """
-    Devuelve la extensión real del archivo.
+    Devuelve la extensión REAL del archivo.
 
-    .tar.gz es una extensión compuesta. os.path.splitext lo partiría en
-    ('.tar', '.gz') y devolvería solo '.gz', fallando la validación.
-    Por eso se comprueba primero con endswith antes de recurrir a splitext.
+    Problema: os.path.splitext("backup.tar.gz") devuelve ('backup.tar', '.gz'),
+    o sea, solo ve la última parte (.gz). Si validáramos con eso, un .tar.gz
+    legítimo NUNCA pasaría la lista blanca.
+
+    Solución: comprobamos primero, a mano, si el nombre termina en ".tar.gz"
+    (extensión doble). Solo si no, recurrimos a splitext para el caso simple
+    como ".zip".  (Apoya el control SEC-03.)
     """
-    lower = filename.lower()
-    if lower.endswith(".tar.gz"):
+    lower = filename.lower()                 # normalizamos a minúsculas (.ZIP == .zip)
+    if lower.endswith(".tar.gz"):            # caso especial de extensión doble
         return ".tar.gz"
-    _, ext = os.path.splitext(lower)
-    return ext
+    _, ext = os.path.splitext(lower)         # caso normal: separa nombre y extensión
+    return ext                               # p.ej. ".zip"
 
 
 def sanitize_filename(name: str) -> str:
     """
-    Neutraliza nombres de archivo maliciosos antes de usarlos como clave S3.
-
-    Controles aplicados:
-    1. Normaliza separadores y extrae solo el componente final (anti path-traversal).
-    2. Elimina bytes nulos (evita truncamiento de cadenas en C-extensions).
-    3. Sustituye caracteres fuera del conjunto seguro por '_'.
-    4. Elimina puntos iniciales (evita archivos ocultos en sistemas Unix).
+    Limpia el nombre de archivo antes de usarlo como clave en S3.
+    Cada paso neutraliza un ataque distinto (control SEC-03).
     """
-    name = name.replace("\\", "/").rsplit("/", 1)[-1]   # solo el nombre base
-    name = name.replace("\x00", "")                     # bytes nulos
-    name = _SAFE_NAME_RE.sub("_", name)                 # solo ASCII seguro
-    name = name.lstrip(".")                             # sin punto inicial
+    #  1) Anti path-traversal: convertimos "\" en "/" y nos quedamos SOLO con
+    #     lo que hay tras la última "/". Así "../../etc/passwd" -> "passwd".
+    name = name.replace("\\", "/").rsplit("/", 1)[-1]
+    #  2) Anti null-byte injection: quitamos el byte nulo \x00 que en algunos
+    #     lenguajes corta la cadena y permite saltarse validaciones.
+    name = name.replace("\x00", "")
+    #  3) Sustituimos todo carácter inseguro (según la regex) por "_".
+    name = _SAFE_NAME_RE.sub("_", name)
+    #  4) Quitamos puntos al inicio para evitar archivos ocultos tipo ".bashrc".
+    name = name.lstrip(".")
+    #  5) Si tras limpiar quedó vacío, ponemos un nombre por defecto.
     return name if name else "archivo"
 
 
 def build_s3_client():
     """
-    Construye el cliente S3 con las credenciales temporales del .env.
+    Crea el cliente de boto3 para hablar con S3, usando las credenciales
+    temporales del .env.
 
-    Se instancia en cada petición para que rotaciones de credenciales AWS
-    Academy (que cambian con cada sesión de laboratorio) surtan efecto sin
-    reiniciar el servidor.
+    Lo construimos EN CADA petición (no una sola vez al arrancar) porque las
+    credenciales de AWS Academy cambian con cada sesión de laboratorio; así
+    tomamos siempre las más recientes sin reiniciar el servidor.
     """
     return boto3.client(
         "s3",
         region_name=settings.AWS_REGION,
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        aws_session_token=settings.AWS_SESSION_TOKEN,
+        aws_session_token=settings.AWS_SESSION_TOKEN,   # obligatorio en voclabs
     )
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
-
+# -----------------------------------------------------------------------------
+#  Endpoint: GET /healthz  —  comprobación de vida
+# -----------------------------------------------------------------------------
 @app.get("/healthz")
 def healthz():
-    """Comprobación de vida. Usada por balanceadores y CI/CD."""
+    """Devuelve 200 y {"status": "ok"} si el servicio está vivo.
+    Lo usan balanceadores de carga y pipelines de CI/CD para saber si la app
+    responde, sin tocar ninguna lógica de negocio."""
     return {"status": "ok"}
 
 
+# -----------------------------------------------------------------------------
+#  Endpoint: POST /api/upload/presigned-url
+# -----------------------------------------------------------------------------
+#  Recibe (fileName, fileType, fileSize), valida según los parámetros P-07 y,
+#  si todo está bien, devuelve la URL firmada para subir el archivo a S3.
 @app.post("/api/upload/presigned-url")
 def generate_presigned_url(payload: PresignedUrlRequest):
-    # ── 1. Límite de tamaño ──────────────────────────────────────────────────
-    # Validación temprana antes de cualquier llamada a AWS para no desperdiciar
-    # cuota de API ni generar URLs para archivos que serán rechazados.
+    #  Nota: Pydantic YA validó que payload tiene los 3 campos, que fileName no
+    #  está vacío y que fileSize > 0 antes de llegar aquí.
+
+    # ── 1) Límite de tamaño (control SEC-04) ─────────────────────────────────
+    #  Validamos PRIMERO lo barato (un simple if) antes de gastar una llamada
+    #  a AWS. Si supera 50 MB, cortamos con un error 400 (petición incorrecta).
     if payload.fileSize > settings.MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=400,
             detail="El archivo supera el límite de 50 MB.",
         )
 
-    # ── 2. Validación de extensión ───────────────────────────────────────────
-    ext = get_extension(payload.fileName)
-    if ext not in settings.ALLOWED_EXTENSIONS:
+    # ── 2) Validación de extensión / lista blanca (control SEC-03) ───────────
+    ext = get_extension(payload.fileName)            # detecta .zip o .tar.gz bien
+    if ext not in settings.ALLOWED_EXTENSIONS:       # ¿está en la lista permitida?
         raise HTTPException(
             status_code=400,
             detail="Solo se permiten archivos .zip y .tar.gz.",
         )
 
-    # ── 3. Sanitización y composición de la clave S3 ─────────────────────────
-    safe_name = sanitize_filename(payload.fileName)
-    # UUID v4 garantiza unicidad y evita colisiones entre subidas del mismo
-    # nombre; el prefijo "uploads/" segmenta el bucket por función.
+    # ── 3) Sanitización del nombre y construcción de la clave S3 ─────────────
+    safe_name = sanitize_filename(payload.fileName)  # nombre limpio y seguro
+    #  La clave (key) es la ruta del objeto dentro del bucket. La formamos con:
+    #    - el prefijo obligatorio "uploads/"
+    #    - un UUID v4 aleatorio (garantiza unicidad: dos archivos con el mismo
+    #      nombre no se pisan entre sí)
+    #    - el nombre ya saneado
     key = f"{settings.UPLOAD_PREFIX}{uuid.uuid4()}_{safe_name}"
 
-    # ── 4. Generación de presigned URL ───────────────────────────────────────
+    # ── 4) Generación de la presigned URL ────────────────────────────────────
     s3 = build_s3_client()
     try:
         presigned_url = s3.generate_presigned_url(
-            ClientMethod="put_object",
+            ClientMethod="put_object",        # la URL servirá para SUBIR (PUT)
             Params={
-                "Bucket": settings.S3_BUCKET_NAME,
-                "Key": key,
-                "ContentType": payload.fileType,
-                "ContentLength": payload.fileSize,  # cliente DEBE subir exactamente este tamaño
+                "Bucket": settings.S3_BUCKET_NAME,   # bucket destino
+                "Key": key,                          # ruta/clave del objeto
+                "ContentType": payload.fileType,     # tipo declarado del archivo
+                #  ContentLength firma el tamaño exacto: S3 rechazará la subida
+                #  si el navegador intenta subir un número de bytes distinto.
+                #  Cierra el truco de "digo 5 MB pero subo 500".
+                "ContentLength": payload.fileSize,
             },
-            ExpiresIn=settings.PRESIGNED_URL_EXPIRY,
+            ExpiresIn=settings.PRESIGNED_URL_EXPIRY,  # caduca en 5 minutos
         )
     except (BotoCoreError, ClientError) as exc:
+        #  Si AWS falla (credenciales caducadas, red, permisos...), lo
+        #  registramos en el log interno y devolvemos un 502 neutro al cliente,
+        #  sin filtrar el detalle técnico de AWS (control SEC-07).
         logger.error("S3 presigned URL error: %s", exc)
         raise HTTPException(
             status_code=502,
             detail="No se pudo generar la URL firmada.",
         )
 
+    # ── 5) URL pública del objeto (dónde quedará una vez subido) ─────────────
+    #  Se arma con el patrón estándar de S3: bucket + región + clave.
     public_url = (
         f"https://{settings.S3_BUCKET_NAME}"
         f".s3.{settings.AWS_REGION}.amazonaws.com/{key}"
     )
 
+    # ── 6) Respuesta al frontend ─────────────────────────────────────────────
+    #  presignedUrl -> a dónde hace el PUT el navegador
+    #  key          -> identificador del objeto (se usará luego para listar/borrar)
+    #  publicUrl    -> dónde quedará accesible el archivo
     return {
         "presignedUrl": presigned_url,
         "key": key,

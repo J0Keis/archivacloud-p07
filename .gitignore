@@ -1,0 +1,20 @@
+# Nunca subir credenciales reales al repo (control SEC-01)
+.env
+backend/.env
+
+# Artefactos de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Entornos virtuales
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+
+# Empaquetado y caches
+*.egg-info/
+dist/
+.pytest_cache/
