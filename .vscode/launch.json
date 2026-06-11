@@ -1,0 +1,30 @@
+{
+  // Configuración de ejecución/depuración para VS Code.
+  // Con F5 (o el botón verde "Run") arranca el backend y, cuando el servidor
+  // está listo, abre automáticamente el navegador en /healthz.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI: backend (abre navegador)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--port",
+        "8000"
+      ],
+      // Ejecuta dentro de backend/ para que "app.main:app" resuelva bien.
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      // serverReadyAction: VS Code observa la salida del servidor; cuando ve la
+      // línea "Uvicorn running on http://..." captura esa URL y abre el navegador.
+      "serverReadyAction": {
+        "pattern": "Uvicorn running on (https?://\\S+)",
+        "uriFormat": "%s/healthz",
+        "action": "openExternally"
+      }
+    }
+  ]
+}
