@@ -17,5 +17,11 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // El proyecto usa React 18: cargar datos al montar con useEffect es un
+      // patrón estándar y correcto. La regla set-state-in-effect es de React 19
+      // y lo marca como error, por eso la desactivamos para nuestro stack.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])
