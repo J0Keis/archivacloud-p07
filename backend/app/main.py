@@ -287,3 +287,43 @@ def generate_presigned_url(payload: PresignedUrlRequest):
         "key": key,
         "publicUrl": public_url,
     }
+
+
+# -----------------------------------------------------------------------------
+#  Endpoint: GET /api/files  —  listar los archivos subidos
+# -----------------------------------------------------------------------------
+#  Devuelve los objetos guardados bajo el prefijo uploads/ del bucket. Mira
+#  SOLO esa carpeta lógica, nunca el resto del bucket: es defensa en profundidad
+#  que acompaña a la política IAM de mínimo privilegio (control SEC-05).
+@app.get("/api/files")
+def list_files():
+    s3 = build_s3_client()
+    try:
+        #  Prefix restringe el listado a uploads/. Sin Prefix se listaría todo
+        #  el bucket, lo que violaría el mínimo privilegio.
+        response = s3.list_objects_v2(
+            Bucket=settings.S3_BUCKET_NAME,
+            Prefix=settings.UPLOAD_PREFIX,
+        )
+    except (BotoCoreError, ClientError) as exc:
+        #  Cualquier fallo de AWS se registra en el log y al cliente solo le
+        #  llega un 502 neutro, sin detalles técnicos (control SEC-07).
+        logger.error("S3 list error: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudieron listar los archivos.",
+        )
+
+    #  Si no hay objetos bajo uploads/, la respuesta de S3 NO trae la clave
+    #  "Contents"; por eso usamos .get("Contents", []) para no provocar un error.
+    files = []
+    for obj in response.get("Contents", []):
+        files.append(
+            {
+                "key": obj["Key"],                                # ruta completa en S3
+                "size": obj["Size"],                              # tamaño en bytes
+                "lastModified": obj["LastModified"].isoformat(),  # fecha ISO 8601
+            }
+        )
+
+    return {"count": len(files), "files": files}
