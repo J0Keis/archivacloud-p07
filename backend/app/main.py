@@ -63,8 +63,9 @@ app.add_middleware(
     #  False = el navegador no enviará cookies ni cabeceras de autorización en
     #  las peticiones cross-origin. Mitiga ataques de tipo CSRF.
     allow_credentials=False,
-    #  Solo permitimos los métodos que realmente usamos (mínimo privilegio).
-    allow_methods=["GET", "POST"],
+    #  Solo permitimos los métodos que realmente usa el frontend (mínimo
+    #  privilegio): GET (listar), POST (presigned-url), DELETE (eliminar).
+    allow_methods=["GET", "POST", "DELETE"],
     #  Solo permitimos la cabecera necesaria para enviar JSON.
     allow_headers=["Content-Type"],
 )
