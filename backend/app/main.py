@@ -327,3 +327,37 @@ def list_files():
         )
 
     return {"count": len(files), "files": files}
+
+
+# -----------------------------------------------------------------------------
+#  Endpoint: DELETE /api/files/{key}  —  eliminar un archivo
+# -----------------------------------------------------------------------------
+#  Borra un objeto del bucket. El convertidor {key:path} captura la ruta
+#  completa INCLUIDAS las barras "/", porque la clave es del tipo
+#  "uploads/<uuid>_nombre.zip" (un path param normal cortaría en la primera /).
+@app.delete("/api/files/{key:path}")
+def delete_file(key: str):
+    # ── Seguridad: solo se puede borrar DENTRO de uploads/ (SEC-05) ──────────
+    #  Aunque la política IAM ya restringe el acceso a uploads/, lo validamos
+    #  también aquí (defensa en profundidad). Rechazamos con 400:
+    #    - claves que no empiezan por "uploads/" (intento de salir del prefijo)
+    #    - claves con ".." (intento de path traversal)
+    if not key.startswith(settings.UPLOAD_PREFIX) or ".." in key:
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden eliminar archivos dentro de uploads/.",
+        )
+
+    s3 = build_s3_client()
+    try:
+        #  delete_object es idempotente: S3 responde con éxito aunque el objeto
+        #  no exista. Para este proyecto es un comportamiento aceptable.
+        s3.delete_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
+    except (BotoCoreError, ClientError) as exc:
+        logger.error("S3 delete error: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo eliminar el archivo.",
+        )
+
+    return {"deleted": key}
