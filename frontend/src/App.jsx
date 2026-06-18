@@ -1,29 +1,33 @@
 // =============================================================================
-//  App.jsx  —  Componente raíz: une el formulario de subida y la lista
+//  App.jsx  —  Componente raíz: une subida, lista y el sistema de avisos
 // =============================================================================
 import { useState, useEffect, useCallback } from "react";
 import UploadForm from "./components/UploadForm";
 import FileList from "./components/FileList";
+import Modal from "./components/Modal";
 import { listarArchivos } from "./api";
 import "./App.css";
 
 export default function App() {
   const [archivos, setArchivos] = useState([]);
-  const [error, setError] = useState("");
+  //  Aviso global mostrado en un recuadro centrado: { tipo: 'ok'|'error', mensaje }
+  const [aviso, setAviso] = useState(null);
+
+  //  Función que cualquier hijo usa para mostrar un aviso centrado.
+  const notificar = useCallback((tipo, mensaje) => {
+    setAviso({ tipo, mensaje });
+  }, []);
 
   //  Pide al backend la lista de archivos y la guarda en el estado.
-  //  useCallback evita recrear la función en cada render (buena práctica con
-  //  useEffect y al pasarla como prop a los hijos).
   const cargar = useCallback(async () => {
     try {
       const data = await listarArchivos();
       setArchivos(data.files);
-      setError("");
     } catch (err) {
       const detalle = err.response?.data?.detail || err.message;
-      setError("No se pudo cargar la lista: " + detalle);
+      notificar("error", "No se pudo cargar la lista: " + detalle);
     }
-  }, []);
+  }, [notificar]);
 
   //  Al montar la app, carga la lista una vez.
   useEffect(() => {
@@ -39,16 +43,23 @@ export default function App() {
 
       <section className="card">
         <h2>Subir archivo</h2>
-        {/* Cuando termina una subida, onSubido refresca la lista */}
-        <UploadForm onSubido={cargar} />
+        <UploadForm onSubido={cargar} notificar={notificar} />
       </section>
 
       <section className="card">
         <h2>Archivos subidos</h2>
-        {error && <p className="estado error">{error}</p>}
-        {/* onCambio refresca la lista tras un borrado */}
-        <FileList archivos={archivos} onCambio={cargar} />
+        <FileList archivos={archivos} onCambio={cargar} notificar={notificar} />
       </section>
+
+      {/* Recuadro de aviso centrado (éxito o error) */}
+      {aviso && (
+        <Modal onClose={() => setAviso(null)}>
+          <div className={"aviso aviso-" + aviso.tipo}>
+            <p>{aviso.mensaje}</p>
+            <button onClick={() => setAviso(null)}>Aceptar</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
