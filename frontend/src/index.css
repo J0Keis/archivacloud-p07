@@ -1,15 +1,20 @@
-/* index.css — estilos base y variables de color globales */
+/* index.css — estilos base y paleta de colores OSCURA */
 :root {
-  --azul: #1f3864;
-  --azul-claro: #2e75b6;
-  --gris-fondo: #f4f6f9;
-  --gris-borde: #d8dee9;
-  --rojo: #c0392b;
-  --verde: #2e7d32;
-  --texto: #1a1a1a;
+  --bg: #0f1117;          /* fondo general, muy oscuro */
+  --bg-card: #1a1d29;     /* tarjetas y modales */
+  --bg-card-2: #232735;   /* inputs y botones secundarios */
+  --borde: #2e3344;       /* bordes sutiles */
+  --texto: #e4e6eb;       /* texto principal claro */
+  --texto-sec: #9aa0ad;   /* texto secundario apagado */
+  --azul: #4a90e2;        /* acento principal */
+  --azul-claro: #6aa9ed;  /* acento hover */
+  --rojo: #e05260;        /* peligro hover */
+  --rojo-osc: #b83242;    /* peligro */
+  --verde: #3fb950;       /* éxito */
 
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
+  color-scheme: dark;
 }
 
 * {
@@ -19,7 +24,7 @@
 }
 
 body {
-  background: var(--gris-fondo);
+  background: var(--bg);
   color: var(--texto);
   min-height: 100vh;
 }
