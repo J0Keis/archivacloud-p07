@@ -1,0 +1,25 @@
+/* index.css — estilos base y variables de color globales */
+:root {
+  --azul: #1f3864;
+  --azul-claro: #2e75b6;
+  --gris-fondo: #f4f6f9;
+  --gris-borde: #d8dee9;
+  --rojo: #c0392b;
+  --verde: #2e7d32;
+  --texto: #1a1a1a;
+
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--gris-fondo);
+  color: var(--texto);
+  min-height: 100vh;
+}
