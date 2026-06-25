@@ -141,6 +141,40 @@ causa y solución. Útil para la defensa oral y como evidencia de trabajo.
 
 ---
 
+## Sprint 3 — Feature extra y seguridad
+
+### 11. El frontend quedó en React 19 (el stack pide React 18) + error de lint ⭐
+- **Síntoma:** `npm run lint` daba 1 error (`react-hooks/set-state-in-effect`)
+  en `App.jsx`. Además, el stack del enunciado exige React 18, pero el frontend
+  estaba en React 19.
+- **Causa:** `npm create vite` instala la ÚLTIMA versión (React 19), cuyo linter
+  (eslint-plugin-react-hooks v7) marca como error el patrón de cargar datos al
+  montar con `useEffect` — un patrón que en React 18 es estándar.
+- **Solución:** bajar `react` y `react-dom` a `^18.3.1` (cumple el stack) y
+  desactivar la regla `set-state-in-effect` (es de React 19) en
+  `eslint.config.js`. Resultado: build OK y lint limpio.
+
+### 12. pip-audit encontró 2 vulnerabilidades en starlette ⭐ (SEC-09)
+- **Síntoma:** `pip-audit -r requirements.txt` reportó 2 CVEs
+  (`CVE-2026-54282`, `CVE-2026-54283`) en `starlette==1.2.1`.
+- **Causa:** starlette (dependencia transitiva de FastAPI) tenía una versión con
+  vulnerabilidades conocidas.
+- **Solución:** actualizar a `starlette==1.3.1` y fijarlo en `requirements.txt`.
+  Re-escaneo: **0 vulnerabilidades**.
+- **Nota:** es exactamente lo que pide SEC-09 — no solo correr el escaneo, sino
+  encontrar algo real y mitigarlo.
+
+### 13. pip-audit no parseaba el requirements.txt (UTF-16)
+- **Síntoma:** `pip-audit` fallaba con `"= is not a valid operator"` y mostraba
+  el texto con los caracteres espaciados.
+- **Causa:** el `requirements.txt` se regeneró con `pip freeze > requirements.txt`
+  desde PowerShell, que lo guarda en **UTF-16**; pip-audit no lo leía bien.
+- **Solución:** reescribir el archivo en **UTF-8 sin BOM**.
+- **Lección:** en PowerShell, `>` y `Out-File` generan UTF-16 / UTF-8-con-BOM.
+  Para archivos que leen otras herramientas (pip, git), usar UTF-8 explícito.
+
+---
+
 ## Resumen
 
 | # | Problema | Causa raíz | Solución |
@@ -155,3 +189,6 @@ causa y solución. Útil para la defensa oral y como evidencia de trabajo.
 | 8 | `InvalidToken` | credenciales AWS caducadas | reiniciar Lab + actualizar `.env` |
 | 9 | DELETE "Network Error" | CORS backend sin DELETE | añadir `DELETE` a `allow_methods` |
 | 10 | Subida bloqueada | faltaba CORS en el bucket | configurar CORS del bucket S3 |
+| 11 | React 19 + error de lint | Vite instala React 19 (stack pide 18) | bajar a React 18 + desactivar regla del linter |
+| 12 | 2 CVEs en starlette | starlette 1.2.1 vulnerable (dep de FastAPI) | actualizar a starlette 1.3.1 (SEC-09) |
+| 13 | pip-audit no parsea requirements | archivo en UTF-16 (pip freeze en PowerShell) | reescribir en UTF-8 sin BOM |
