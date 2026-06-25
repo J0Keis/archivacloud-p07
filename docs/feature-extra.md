@@ -36,9 +36,9 @@ Ejemplo de respuesta del endpoint:
 ## Capturas
 
 > Añadir aquí las capturas de pantalla:
-> - **Captura 1:** la barra "Espacio usado" en el frontend (con un porcentaje).
-> - **Captura 2:** subir un archivo y ver que la barra crece.
-> - **Captura 3:** respuesta del endpoint `GET /api/stats` (en Swagger `/docs`).
+> - **Captura 1:** la barra "Espacio usado" en el frontend (con un porcentaje).![alt text](image.png)
+> - **Captura 2:** subir un archivo y ver que la barra crece. ![alt text]({328CE014-FB72-4015-A652-415B5CB0608E}.png)
+> - **Captura 3:** respuesta del endpoint `GET /api/stats` (en Swagger `/docs`).![ ]({73B34A67-2476-4F77-9950-D6785F81580B}.png)
 
 ## Archivos relevantes
 
