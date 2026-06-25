@@ -47,3 +47,10 @@ export async function eliminarArchivo(key) {
   const { data } = await api.delete(`/api/files/${key}`);
   return data;
 }
+
+//  5) Estadísticas del bucket: tamaño total y % de 1 GB (feature extra P-07).
+//     Devuelve { count, totalBytes, limitBytes, porcentaje }.
+export async function obtenerStats() {
+  const { data } = await api.get("/api/stats");
+  return data;
+}

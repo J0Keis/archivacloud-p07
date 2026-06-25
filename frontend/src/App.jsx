@@ -1,15 +1,17 @@
 // =============================================================================
-//  App.jsx  —  Componente raíz: une subida, lista y el sistema de avisos
+//  App.jsx  —  Componente raíz: subida, espacio usado, lista y avisos
 // =============================================================================
 import { useState, useEffect, useCallback } from "react";
 import UploadForm from "./components/UploadForm";
 import FileList from "./components/FileList";
+import BucketStats from "./components/BucketStats";
 import Modal from "./components/Modal";
-import { listarArchivos } from "./api";
+import { listarArchivos, obtenerStats } from "./api";
 import "./App.css";
 
 export default function App() {
   const [archivos, setArchivos] = useState([]);
+  const [stats, setStats] = useState(null);
   //  Aviso global mostrado en un recuadro centrado: { tipo: 'ok'|'error', mensaje }
   const [aviso, setAviso] = useState(null);
 
@@ -18,7 +20,8 @@ export default function App() {
     setAviso({ tipo, mensaje });
   }, []);
 
-  //  Pide al backend la lista de archivos y la guarda en el estado.
+  //  Carga la lista y, por separado, las estadísticas del bucket. Si las
+  //  estadísticas fallan, la lista igual se muestra (no son críticas).
   const cargar = useCallback(async () => {
     try {
       const data = await listarArchivos();
@@ -27,9 +30,15 @@ export default function App() {
       const detalle = err.response?.data?.detail || err.message;
       notificar("error", "No se pudo cargar la lista: " + detalle);
     }
+    try {
+      const s = await obtenerStats();
+      setStats(s);
+    } catch {
+      setStats(null);
+    }
   }, [notificar]);
 
-  //  Al montar la app, carga la lista una vez.
+  //  Al montar la app, carga lista + estadísticas una vez.
   useEffect(() => {
     cargar();
   }, [cargar]);
@@ -44,6 +53,11 @@ export default function App() {
       <section className="card">
         <h2>Subir archivo</h2>
         <UploadForm onSubido={cargar} notificar={notificar} />
+      </section>
+
+      <section className="card">
+        <h2>Espacio usado</h2>
+        <BucketStats stats={stats} />
       </section>
 
       <section className="card">

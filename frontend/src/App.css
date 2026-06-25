@@ -211,3 +211,37 @@ button:disabled {
   color: var(--rojo);
   font-weight: bold;
 }
+
+/* ===== Feature extra: barra de espacio usado ===== */
+.stats-texto {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  color: var(--texto);
+}
+.stats-pct {
+  font-weight: bold;
+  color: var(--azul-claro);
+}
+.stats-barra {
+  width: 100%;
+  height: 14px;
+  background: var(--bg-card-2);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.stats-relleno {
+  height: 100%;
+  background: var(--azul);
+  border-radius: 7px;
+  transition: width 0.4s ease;
+}
+.stats-relleno.lleno {
+  background: var(--rojo);
+}
+.stats-sub {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--texto-sec);
+}

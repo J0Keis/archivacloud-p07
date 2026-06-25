@@ -3,14 +3,8 @@
 // =============================================================================
 import { useState } from "react";
 import { eliminarArchivo } from "../api";
+import { formatoTamano } from "../utils";
 import Modal from "./Modal";
-
-//  Muestra el tamaño en B / KB / MB de forma legible.
-function formatoTamano(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-}
 
 //  La key en S3 es "uploads/<uuid>_nombre.zip". Para mostrarla al usuario
 //  quitamos el prefijo "uploads/" y el UUID, dejando solo el nombre original.
