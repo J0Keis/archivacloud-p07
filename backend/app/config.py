@@ -79,6 +79,11 @@ class Settings:
     #  Prefijo (carpeta lógica) bajo el cual se guardan todas las subidas en S3.
     UPLOAD_PREFIX: str = "uploads/"
 
+    # ── Feature extra P-07: cuota total del bucket ────────────────────────────
+    #  Límite de referencia de 1 GB para calcular el porcentaje ocupado.
+    #  1024**3 = 1.073.741.824 bytes (1 GiB), coherente con cómo medimos los MiB.
+    BUCKET_LIMIT_BYTES: int = 1024 ** 3
+
     # ── Tiempo de vida de la presigned URL, en segundos ───────────────────────
     #  300 s = 5 minutos. La URL firmada solo es válida durante esta ventana;
     #  después caduca. Cuanto más corta, menos tiempo tiene un atacante para

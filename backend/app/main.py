@@ -362,3 +362,50 @@ def delete_file(key: str):
         )
 
     return {"deleted": key}
+
+
+# -----------------------------------------------------------------------------
+#  Endpoint: GET /api/stats  —  FEATURE EXTRA P-07
+# -----------------------------------------------------------------------------
+#  Devuelve el tamaño TOTAL ocupado en el bucket (bajo uploads/) y el porcentaje
+#  frente a la cuota de 1 GB. Es el endpoint adicional que exige la feature extra
+#  obligatoria de la pareja P-07.
+@app.get("/api/stats")
+def bucket_stats():
+    s3 = build_s3_client()
+    total = 0
+    count = 0
+    try:
+        #  list_objects_v2 devuelve como MUCHO 1000 objetos por llamada. Para
+        #  sumar TODOS (aunque haya más de 1000) paginamos con el
+        #  ContinuationToken hasta que la respuesta deja de estar truncada.
+        token = None
+        while True:
+            params = {"Bucket": settings.S3_BUCKET_NAME, "Prefix": settings.UPLOAD_PREFIX}
+            if token:
+                params["ContinuationToken"] = token
+            resp = s3.list_objects_v2(**params)
+            for obj in resp.get("Contents", []):
+                total += obj["Size"]
+                count += 1
+            if resp.get("IsTruncated"):
+                token = resp.get("NextContinuationToken")
+            else:
+                break
+    except (BotoCoreError, ClientError) as exc:
+        logger.error("S3 stats error: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudieron calcular las estadísticas.",
+        )
+
+    limite = settings.BUCKET_LIMIT_BYTES
+    #  Porcentaje ocupado frente a 1 GB, redondeado a 2 decimales.
+    porcentaje = round(total / limite * 100, 2) if limite else 0
+
+    return {
+        "count": count,            # número de archivos
+        "totalBytes": total,       # bytes ocupados en total
+        "limitBytes": limite,      # cuota de referencia (1 GB)
+        "porcentaje": porcentaje,  # % ocupado frente a la cuota
+    }
